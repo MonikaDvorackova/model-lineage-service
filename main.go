@@ -1,0 +1,6 @@
+package main
+import("encoding/json";"fmt";"net/http";"sync")
+type Node struct{ID string `json:"id"`;Kind string `json:"kind"`;Parents []string `json:"parents"`;Digest string `json:"digest"`}
+var mu sync.RWMutex; var nodes=map[string]Node{}
+func reaches(from,target string,seen map[string]bool)bool{if from==target{return true};if seen[from]{return false};seen[from]=true;n,ok:=nodes[from];if !ok{return false};for _,p:=range n.Parents{if reaches(p,target,seen){return true}};return false}
+func main(){http.HandleFunc("/health",func(w http.ResponseWriter,r *http.Request){w.Write([]byte("ok\n"))});http.HandleFunc("/nodes",func(w http.ResponseWriter,r *http.Request){if r.Method==http.MethodGet{mu.RLock();defer mu.RUnlock();json.NewEncoder(w).Encode(nodes);return};if r.Method!=http.MethodPost{http.Error(w,"GET or POST required",405);return};var n Node;if json.NewDecoder(r.Body).Decode(&n)!=nil||n.ID==""||n.Kind==""{http.Error(w,"invalid node",400);return};mu.Lock();defer mu.Unlock();for _,p:=range n.Parents{if _,ok:=nodes[p];!ok{http.Error(w,"unknown parent: "+p,422);return};if reaches(p,n.ID,map[string]bool{}){http.Error(w,"cycle",422);return}};if _,ok:=nodes[n.ID];ok{http.Error(w,"duplicate id",409);return};nodes[n.ID]=n;w.WriteHeader(201);json.NewEncoder(w).Encode(n)});fmt.Println("lineage service on :8080");http.ListenAndServe(":8080",nil)}
